@@ -1,0 +1,164 @@
+---
+title: "homework 4"
+author: "qianzhang"
+date: "2024-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(patchwork)
+```
+
+
+## 第一个问题
+```{r}
+data1 <- read_csv("PM2.5_2024Q1.csv")
+head(data1)
+
+data_BJ <- 
+  data1 %>% 
+  filter(city == "北京") %>% 
+  filter(type == "PM2.5") %>%
+  mutate(new_date = ymd(date)) %>% 
+  mutate(year = year(new_date),month = month(new_date),day = month(new_date)) %>% 
+  group_by(year,month,date) %>% 
+  summarise(mean_BJ = mean(value, na.rm = T))
+
+data_XM <- 
+  data1 %>% 
+  filter(city == "厦门") %>% 
+  filter(type == "PM2.5") %>%
+  mutate(new_date = ymd(date)) %>% 
+  mutate(year = year(new_date),month = month(new_date),day = month(new_date)) %>% 
+  group_by(year,month,date) %>% 
+  summarise(mean_XM = mean(value, na.rm = T))
+
+data_com <-
+  data_BJ %>% 
+  left_join(data_XM, by = "date") %>% 
+  pivot_longer(cols = c("mean_BJ", "mean_XM"),
+               names_to = "city",
+               values_to = "value") %>% 
+  mutate(new_date = ymd(date))
+
+data_com %>% 
+  ggplot(aes(new_date, value, color = city))+
+  theme_classic() +
+  geom_point()+
+  geom_line()+
+  labs(x= "Time", y= "PM2.5") +
+  theme(legend.position=c(0,1),
+        legend.justification = c(0,1),
+        legend.background = element_blank(),
+        legend.key = element_blank()) +
+  scale_color_manual(labels = c("Beijing", "Xiamen"), values = c("#F8766D", "#00BFC4"))
+
+ggsave("homework4-1.png", width = 537/90, height = 278/90, dpi=900)
+
+```
+
+#结果描述：总体来说北京市PM2.5浓度高于厦门，空气质量更差，时间上来看，1、2月的PM2.5浓度比3、4月的要高。           
+           
+## 第二个问题
+```{r}
+library(cowplot)
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(patchwork)
+
+d_map <- st_read("maps/aliyun/china_city_aliyun.shp")
+d_map$nam_cty[d_map$nm_prvn == "北京市"] <- "北京市"
+d_map$nam_cty[d_map$nm_prvn == "上海市"] <- "上海市"
+d_map$nam_cty[d_map$nm_prvn == "天津市"] <- "天津市"
+d_map$nam_cty[d_map$nm_prvn == "重庆市"] <- "重庆市"
+
+#head(d_map)
+
+d_pm0209 <- 
+  data1 %>% 
+  filter(date == 20240209) %>% 
+  filter(type == "PM2.5") %>% 
+  filter(value != "NA") %>%
+  group_by(city) %>% 
+  summarise(mean0209 = mean(value))
+
+d_pm0405 <- 
+  data1 %>% 
+  filter(date == 20240405) %>% 
+  filter(type == "PM2.5") %>% 
+  filter(value != "NA") %>% 
+  group_by(city) %>% 
+  summarise(mean0405 = mean(value))
+
+d_pm <- 
+  d_pm0209 %>% 
+  left_join(d_pm0405, by = c("city" = "city")) %>% 
+  mutate(cha = mean0209 - mean0405)
+
+d_pm$city <- paste(d_pm$city, "市", sep = "")
+
+data2 <-
+  d_map %>% 
+  left_join(d_pm, by = c("nam_cty" = "city"))
+
+
+p_nanhai <-
+  data2 %>% 
+  ggplot()+
+  theme_void()+
+  geom_sf()+
+  coord_sf(xlim = c(107, 122), ylim = c(3, 19))+
+  theme(plot.background = element_rect(colour = "black"))
+
+p_china1 <- 
+  data2 %>% 
+  ggplot(aes(fill = mean0209))+
+  geom_sf()+
+  ggtitle("PM2.5 on 02-09")+
+  scale_fill_distiller(limits = c(-60,360), breaks = c(-60,0,60,120,180,240,300,360), palette = "RdBu", direction = -1)+
+  #labs(fill = "PM2.5")+
+  theme(legend.position = "none")+
+  coord_sf(ylim = c(19, NA)) +
+  inset_element(p_nanhai, left = 0.8, bottom = 0, right = 1, top = 0.3)
+
+p_china1 
+
+p_china2 <- 
+  data2 %>% 
+  ggplot(aes(fill = mean0405))+
+  geom_sf()+
+  ggtitle("PM2.5 on 04-05")+
+  scale_fill_distiller(limits = c(-60,360), breaks = c(-60,0,60,120,180,240,300,360), palette = "RdBu", direction = -1)+
+  #labs(fill = "PM2.5")+
+  theme(legend.position = "none")+
+  coord_sf(ylim = c(19, NA)) +
+  inset_element(p_nanhai, left = 0.8, bottom = 0, right = 1, top = 0.3)
+
+p_china2 
+
+p_china3 <- 
+  data2 %>% 
+  ggplot(aes(fill = cha))+
+  geom_sf()+
+  ggtitle("Difference")+
+  scale_fill_distiller(limits = c(-60,360), breaks = c(-60,0,60,120,180,240,300,360), palette = "RdBu", direction = -1)+
+  labs(fill = "PM2.5")+
+  coord_sf(ylim = c(19, NA)) +
+  inset_element(p_nanhai, left = 0.8, bottom = 0, right = 1, top = 0.3)
+
+p_china3 
+
+p2 <- p_china1 + p_china2 + p_china3
+ggsave("homework4-2.png", width = 1202/90, height = 866/90, dpi=900)
+
+```
+#结果描述：对比表明总体而言中国城市除夕夜的PM2.5的浓度要高于清明节的PM2.5浓度
